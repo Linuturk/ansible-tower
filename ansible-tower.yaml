@@ -95,7 +95,7 @@ resources:
       length: 16
       sequence: lettersdigits
 
-  munin_admin_pass:
+  rabbitmq_admin_pass:
     type: "OS::Heat::RandomString"
     properties:
       length: 16
@@ -112,47 +112,54 @@ resources:
           template: |
             #!/bin/bash
             set -e
-            apt-get install -y python-dev python-yaml python-jinja2 python-pip
-            pip install paramiko
-            cat > /root/tower_setup_conf.yml <<'EOF'
-              admin_password: %ansible_admin_pass%
-              database: internal
-              munin_password: %munin_admin_pass%
-              pg_password: %postgres_admin_pass%
-              primary_machine: localhost
-              redis_password: %redis_admin_pass%
-            EOF
+            apt-get -y install software-properties-common
+            apt-add-repository -y ppa:ansible/ansible
+            apt-get -y update
+            apt-get install -y python-dev python-yaml python-jinja2 python-pip selinux-utils #libkrb5-dev krb5-user pywinrm[kerberos]
+
+            pip install --upgrade pip
+            pip install paramiko "pywinrm>=0.2.2" "ansible>=2.3.0"
+
             cat > /root/inventory <<'EOF'
-              [primary]
+              [tower]
               localhost ansible_connection=local
 
               [all:vars]
               admin_password='%ansible_admin_pass%'
               redis_password='%redis_admin_pass%'
-              pg_password='%postgres_admin_pass%'
+
               pg_host=''
               pg_port=''
+
               pg_database='awx'
               pg_username='awx'
-              
-              [all:children]
-              primary
+              pg_password='%postgres_admin_pass%'
+
+              rabbitmq_port=5672
+              rabbitmq_vhost=tower
+              rabbitmq_username=tower
+              rabbitmq_password='%rabbitmq_admin_pass%'
+              rabbitmq_cookie=rabbitmqcookie
+
+              # Needs to be true for fqdns and ip addresses
+              rabbitmq_use_long_name=false
+              # Needs to remain false if you are using localhost
             EOF
             cat > /root/tower_install.sh <<'EOF'
               #!/bin/bash -v
               set -e
-              pip install ansible
+              # pip install ansible
               # Pull and extract the installer
               cd /root
               ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
               cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
               wget -ct0 %ansible_tower_tarball%
               tar xzf ansible-tower-setup-latest.tar.gz
+
               # Get the extracted folder name
               ANSIBLE_SETUP_FOLDER=`tar tf ansible-tower-setup-latest.tar.gz | awk -F/ '{ print $1 }' | uniq`
               # Copy everything to working directory and install
               cp inventory $ANSIBLE_SETUP_FOLDER/inventory
-              cp tower_setup_conf.yml $ANSIBLE_SETUP_FOLDER/tower_setup_conf.yml
               cd $ANSIBLE_SETUP_FOLDER
               sudo ./setup.sh
               ufw allow 443
@@ -164,7 +171,7 @@ resources:
             "%ansible_admin_pass%": { get_attr: [ansible_admin_pass, value] }
             "%postgres_admin_pass%": { get_attr: [postgres_admin_pass, value] }
             "%redis_admin_pass%": { get_attr: [redis_admin_pass, value] }
-            "%munin_admin_pass%": { get_attr: [munin_admin_pass, value] }
+            "%rabbitmq_admin_pass%": {get_attr: [rabbitmq_admin_pass, value]}
             "%server_name%": { get_param: server_name }
 
   deploy_roles:
