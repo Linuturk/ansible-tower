@@ -66,7 +66,7 @@ parameters:
     description: Location of the Ansible Tower installer
     type: string
     default: |
-      http://releases.ansible.com/ansible-tower/setup/ansible-tower-setup-latest.tar.gz
+      https://releases.ansible.com/ansible-tower/setup-bundle/ansible-tower-setup-bundle-latest.el7.tar.gz
 
 resources:
 
@@ -95,6 +95,12 @@ resources:
       length: 16
       sequence: lettersdigits
 
+  munin_admin_pass:
+    type: "OS::Heat::RandomString"
+    properties:
+      length: 16
+      sequence: lettersdigits
+
   rabbitmq_admin_pass:
     type: "OS::Heat::RandomString"
     properties:
@@ -115,9 +121,11 @@ resources:
             apt-get -y install software-properties-common
             apt-add-repository -y ppa:ansible/ansible
             apt-get -y update
-            apt-get install -y python-dev python-yaml python-jinja2 python-pip selinux-utils #libkrb5-dev krb5-user pywinrm[kerberos]
+            apt-get install -y python-dev python-yaml python-jinja2 python-pip selinux-utils
+            # apt-get install -y libkrb5-dev krb5-user pywinrm[kerberos]
 
             pip install --upgrade pip
+
             pip install paramiko "pywinrm>=0.2.2" "ansible>=2.3.0"
 
             cat > /root/inventory <<'EOF'
@@ -140,11 +148,10 @@ resources:
               rabbitmq_username=tower
               rabbitmq_password='%rabbitmq_admin_pass%'
               rabbitmq_cookie=rabbitmqcookie
-
-              # Needs to be true for fqdns and ip addresses
+              # Set to true for fqdns and ip addresses, False if you are using localhost
               rabbitmq_use_long_name=false
-              # Needs to remain false if you are using localhost
             EOF
+
             cat > /root/tower_install.sh <<'EOF'
               #!/bin/bash -v
               set -e
@@ -154,16 +161,17 @@ resources:
               ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
               cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
               wget -ct0 %ansible_tower_tarball%
-              tar xzf ansible-tower-setup-latest.tar.gz
+              tar xzf ansible-tower-setup-bundle-latest.el7.tar.gz
 
               # Get the extracted folder name
-              ANSIBLE_SETUP_FOLDER=`tar tf ansible-tower-setup-latest.tar.gz | awk -F/ '{ print $1 }' | uniq`
+              ANSIBLE_SETUP_FOLDER=`tar tf ansible-tower-setup-bundle-latest.el7.tar.gz | awk -F/ '{ print $1 }' | uniq`
               # Copy everything to working directory and install
               cp inventory $ANSIBLE_SETUP_FOLDER/inventory
               cd $ANSIBLE_SETUP_FOLDER
               sudo ./setup.sh
               ufw allow 443
             EOF
+
             chmod +x /root/tower_install.sh
             /root/tower_install.sh
           params:
@@ -172,6 +180,7 @@ resources:
             "%postgres_admin_pass%": { get_attr: [postgres_admin_pass, value] }
             "%redis_admin_pass%": { get_attr: [redis_admin_pass, value] }
             "%rabbitmq_admin_pass%": {get_attr: [rabbitmq_admin_pass, value]}
+            "%munin_admin_pass%": { get_attr: [munin_admin_pass, value] }
             "%server_name%": { get_param: server_name }
 
   deploy_roles:
